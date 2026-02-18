@@ -31,7 +31,7 @@ CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*").split(",")
 MAX_IMAGE_SIZE_MB = float(os.environ.get("MAX_IMAGE_SIZE_MB", "10"))
 MIN_IMAGE_WIDTH = int(os.environ.get("MIN_IMAGE_WIDTH", "480"))
 MIN_IMAGE_HEIGHT = int(os.environ.get("MIN_IMAGE_HEIGHT", "640"))
-REQUEST_TIMEOUT_SEC = float(os.environ.get("REQUEST_TIMEOUT_SEC", "30"))
+REQUEST_TIMEOUT_SEC = float(os.environ.get("REQUEST_TIMEOUT_SEC", "120"))
 MOCK_PYRENDER = os.environ.get("MOCK_PYRENDER", "").lower() == "true" or os.name == "nt"
 
 # ---------------------------------------------------------------------------
@@ -102,7 +102,7 @@ from photo_to_measurements import (
     compute_measurements,
 )
 from measurement_definitions import STANDARD_LABELS, MEASUREMENT_TYPES, MeasurementType
-from utils import filter_body_part_slices, convex_hull_from_3D_points
+from utils import filter_body_part_slices, ordered_contour_from_segments
 
 # ---------------------------------------------------------------------------
 # App
@@ -358,12 +358,12 @@ def _build_annotated_glb(measurer, height_scale=None):
                 measurer.circumf_2_bodypart, measurer.face_segmentation,
             )
 
-            hull_segments = convex_hull_from_3D_points(slice_segments)
+            contour_segments = ordered_contour_from_segments(slice_segments)
 
-            # Create tube segments along the hull ring
+            # Create tube segments along the contour ring
             tubes = []
-            for i in range(hull_segments.shape[0]):
-                tube = _create_tube(hull_segments[i, 0], hull_segments[i, 1],
+            for i in range(contour_segments.shape[0]):
+                tube = _create_tube(contour_segments[i, 0], contour_segments[i, 1],
                                     tube_radius, color)
                 if tube:
                     tubes.append(tube)
@@ -374,7 +374,7 @@ def _build_annotated_glb(measurer, height_scale=None):
         except Exception:
             continue  # skip measurements that fail geometry
 
-    # --- LENGTH measurements: tube between two landmarks ---
+    # --- LENGTH measurements: tube segments between consecutive landmarks ---
     for m_name, landmark_inds in measurer.length_definitions.items():
         if m_name not in measurer.measurements:
             continue
@@ -384,10 +384,6 @@ def _build_annotated_glb(measurer, height_scale=None):
         color = _LABEL_COLORS.get(label, [255, 255, 255, 255])
 
         try:
-            # Only handle standard 2-landmark lengths
-            if len(landmark_inds) != 2:
-                continue
-
             points = []
             for idx in landmark_inds:
                 if isinstance(idx, tuple):
@@ -396,9 +392,15 @@ def _build_annotated_glb(measurer, height_scale=None):
                     pt = verts[idx]
                 points.append(pt)
 
-            tube = _create_tube(points[0], points[1], tube_radius, color)
-            if tube:
-                scene.add_geometry(tube, node_name=f"meas_{label}_{m_name}")
+            tubes = []
+            for i in range(len(points) - 1):
+                tube = _create_tube(points[i], points[i + 1], tube_radius, color)
+                if tube:
+                    tubes.append(tube)
+
+            if tubes:
+                combined = trimesh.util.concatenate(tubes) if len(tubes) > 1 else tubes[0]
+                scene.add_geometry(combined, node_name=f"meas_{label}_{m_name}")
         except Exception:
             continue
 
@@ -635,9 +637,17 @@ async def measure(
             error_msg += " Errors: " + "; ".join(errors)
         return _error_response(422, error_msg, "NO_PERSON_DETECTED")
 
-    # Aggregate betas
+    # Aggregate betas (confidence-weighted if multiple images)
     if len(all_betas) > 1:
-        final_betas = aggregate_betas(all_betas)
+        final_betas = aggregate_betas(all_betas, scores=all_det_scores)
+        # Check inter-image beta consistency
+        stacked = torch.stack(all_betas, dim=0)  # (N, 1, 10)
+        beta_std_mean = float(stacked.std(dim=0).mean())
+        if beta_std_mean > 1.0:
+            warnings.append(
+                f"Shape estimates are inconsistent across photos "
+                f"(beta std={beta_std_mean:.2f}). Results may be less accurate."
+            )
     else:
         final_betas = all_betas[0]
 
@@ -689,7 +699,8 @@ async def measure(
     # Height ratio warning (Step 2)
     height_ratio = None
     if height is not None:
-        model_height = m_source.get("height") or measurer.measurements.get("height")
+        # Always use raw (un-normalized) model height for ratio calculation
+        model_height = measurer.measurements.get("height")
         if model_height and float(model_height) > 0:
             height_ratio = round(height / float(model_height), 3)
             if height_ratio < 0.7 or height_ratio > 1.3:

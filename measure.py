@@ -113,7 +113,9 @@ class Measurer():
 
     def measure_length(self, measurement_name: str):
         '''
-        Measure distance between 2 landmarks
+        Measure distance along a chain of N landmarks (sum of consecutive
+        pair distances). Backward-compatible: 2-landmark definitions produce
+        identical results to the old single-pair distance.
         :param measurement_name: str - defined in MeasurementDefinitions
 
         Returns
@@ -123,19 +125,24 @@ class Measurer():
         measurement_landmarks_inds = self.length_definitions[measurement_name]
 
         landmark_points = []
-        for i in range(2):
-            if isinstance(measurement_landmarks_inds[i],tuple):
-                # if touple of indices for landmark, take their average
-                lm = (self.verts[measurement_landmarks_inds[i][0]] + 
+        for i in range(len(measurement_landmarks_inds)):
+            if isinstance(measurement_landmarks_inds[i], tuple):
+                # if tuple of indices for landmark, take their average
+                lm = (self.verts[measurement_landmarks_inds[i][0]] +
                           self.verts[measurement_landmarks_inds[i][1]]) / 2
             else:
                 lm = self.verts[measurement_landmarks_inds[i]]
-            
+
             landmark_points.append(lm)
 
-        landmark_points = np.vstack(landmark_points)[None,...]
+        # Build consecutive pairs: (0,1), (1,2), ..., (N-2, N-1)
+        segments = []
+        for i in range(len(landmark_points) - 1):
+            segments.append([landmark_points[i], landmark_points[i + 1]])
 
-        return self._get_dist(landmark_points)
+        segments = np.array(segments)  # (N-1, 2, 3)
+
+        return self._get_dist(segments)
 
     @staticmethod
     def _get_dist(verts: np.ndarray) -> float:
@@ -192,37 +199,54 @@ class Measurer():
                                                  self.circumf_2_bodypart,
                                                  self.face_segmentation)
         
-        slice_segments_hull = convex_hull_from_3D_points(slice_segments)
+        slice_segments_contour = ordered_contour_from_segments(slice_segments)
 
-        return self._get_dist(slice_segments_hull)
+        return self._get_dist(slice_segments_contour)
 
     def height_normalize_measurements(self, new_height: float):
-        ''' 
+        '''
         Scale all measurements so that the height measurement gets
-        the value of new_height:
-        new_measurement = (old_measurement / old_height) * new_height
+        the value of new_height.
+
+        Lengths scale linearly: value * ratio
+        Circumferences scale allometrically: value * ratio^(2/3)
+        This reflects the anthropometric relationship where circumferences
+        scale with cross-sectional area (~height^2) rather than linearly.
+
         NOTE the measurements and body model remain unchanged, a new
         dictionary height_normalized_measurements is created.
-        
+
         Input:
         :param new_height: float, the newly defined height.
 
         Return:
-        self.height_normalized_measurements: dict of 
-                {measurement:value} pairs with 
+        self.height_normalized_measurements: dict of
+                {measurement:value} pairs with
                 height measurement = new_height, and other measurements
                 scaled accordingly
         '''
         if self.measurements != {}:
             old_height = self.measurements["height"]
+            ratio = new_height / old_height
+
             for m_name, m_value in self.measurements.items():
-                norm_value = (m_value / old_height) * new_height
+                if self.measurement_types.get(m_name) == MeasurementType.CIRCUMFERENCE:
+                    norm_value = m_value * (ratio ** (2.0 / 3.0))
+                else:
+                    norm_value = m_value * ratio
                 self.height_normalized_measurements[m_name] = norm_value
 
+            # Force height to be exactly new_height (avoid floating point drift)
+            self.height_normalized_measurements["height"] = new_height
+
             if self.labeled_measurements != {}:
-                for m_name, m_value in self.labeled_measurements.items():
-                    norm_value = (m_value / old_height) * new_height
-                    self.height_normalized_labeled_measurements[m_name] = norm_value
+                for m_label, m_value in self.labeled_measurements.items():
+                    m_name = self.labels2names.get(m_label, "")
+                    if self.measurement_types.get(m_name) == MeasurementType.CIRCUMFERENCE:
+                        norm_value = m_value * (ratio ** (2.0 / 3.0))
+                    else:
+                        norm_value = m_value * ratio
+                    self.height_normalized_labeled_measurements[m_label] = norm_value
 
     def label_measurements(self,set_measurement_labels: Dict[str, str]):
         '''

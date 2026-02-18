@@ -23,9 +23,78 @@ def load_face_segmentation(path: str):
         return face_segmentation
 
 
+def ordered_contour_from_segments(slice_segments: np.ndarray):
+        '''
+        Chain mesh-plane intersection segments into an ordered contour loop.
+        This produces the actual cross-section perimeter, which is more accurate
+        than convex hull for concave body cross-sections (waist, neck, etc.).
+
+        :param slice_segments: np.ndarray, dim N x 2 x 3 representing N 3D segments
+
+        Returns:
+        :param ordered_segments: np.ndarray, dim M x 2 x 3 representing M ordered 3D
+                                 segments forming the contour. Falls back to returning
+                                 input segments as-is if chaining fails.
+        '''
+
+        if len(slice_segments) == 0:
+            return slice_segments
+
+        n_segs = len(slice_segments)
+
+        # For very few segments, just return them directly
+        if n_segs <= 2:
+            return slice_segments
+
+        # Work on a copy to avoid mutating caller's data
+        segments = slice_segments.copy()
+
+        EPS = 1e-6  # tolerance for matching endpoints
+
+        # Try to chain segments into an ordered loop
+        used = [False] * n_segs
+        ordered = [0]
+        used[0] = True
+        current_end = segments[0, 1].copy()
+
+        for _ in range(n_segs - 1):
+            best_idx = -1
+            best_flip = False
+            best_dist = float('inf')
+
+            for j in range(n_segs):
+                if used[j]:
+                    continue
+                d0 = np.linalg.norm(segments[j, 0] - current_end)
+                d1 = np.linalg.norm(segments[j, 1] - current_end)
+
+                if d0 < best_dist:
+                    best_dist = d0
+                    best_idx = j
+                    best_flip = False
+                if d1 < best_dist:
+                    best_dist = d1
+                    best_idx = j
+                    best_flip = True
+
+            if best_dist < EPS and best_idx >= 0:
+                used[best_idx] = True
+                if best_flip:
+                    segments[best_idx] = segments[best_idx, ::-1]
+                ordered.append(best_idx)
+                current_end = segments[best_idx, 1].copy()
+            else:
+                # Chain broken — fall back to summing all segment lengths directly
+                return segments
+
+        return segments[ordered]
+
+
 def convex_hull_from_3D_points(slice_segments: np.ndarray):
         '''
-        Cretes convex hull from 3D points
+        [DEPRECATED] Use ordered_contour_from_segments() instead.
+        Computes convex hull which over-estimates circumferences for concave shapes.
+
         :param slice_segments: np.ndarray, dim N x 2 x 3 representing N 3D segments
 
         Returns:
@@ -39,7 +108,7 @@ def convex_hull_from_3D_points(slice_segments: np.ndarray):
                                             axis=0)
 
         # points lie in plane -- find which ax of x,y,z is redundant
-        redundant_plane_coord = np.argmin(np.max(unique_segment_points,axis=0) - 
+        redundant_plane_coord = np.argmin(np.max(unique_segment_points,axis=0) -
                                             np.min(unique_segment_points,axis=0) )
         non_redundant_coords = [x for x in range(3) if x!=redundant_plane_coord]
 

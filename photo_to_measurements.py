@@ -173,10 +173,28 @@ def run_hmr2_inference(model, model_cfg, img_cv2, boxes, device):
     return None, None
 
 
+def clamp_betas(betas, max_abs=3.0):
+    """Clamp SMPL beta parameters to ±max_abs.
+
+    SMPL betas are PCA components with ~unit variance. Values beyond ±3
+    represent extreme outliers that produce unrealistic body shapes.
+
+    Args:
+        betas: torch.Tensor of shape parameters.
+        max_abs: Maximum absolute value (default 3.0).
+
+    Returns:
+        Clamped betas tensor (same shape).
+    """
+    return torch.clamp(betas, min=-max_abs, max=max_abs)
+
+
 def compute_measurements(betas, gender, known_height=None):
     """Compute body measurements from SMPL betas."""
     from measure import MeasureBody
     from measurement_definitions import STANDARD_LABELS
+
+    betas = clamp_betas(betas)
 
     measurer = MeasureBody("smpl")
     measurer.from_body_model(gender=gender, shape=betas)
@@ -255,10 +273,11 @@ def print_results(measurer, known_height=None, n_images=1):
 
 
 def process_single_image(image_path, model, model_cfg, detector, device, image_idx=None, total_images=None):
-    """Process a single image: detect person + run HMR 2.0, return betas.
+    """Process a single image: detect person + run HMR 2.0, return (betas, score).
 
     Returns:
-        betas (torch.Tensor): Shape parameters (1, 10), or None if failed.
+        (betas, score): Shape parameters (1, 10) and detection confidence,
+                        or (None, None) if failed.
     """
     prefix = f"   [{image_idx}/{total_images}] " if image_idx else "   "
     img_name = os.path.basename(image_path)
@@ -266,19 +285,22 @@ def process_single_image(image_path, model, model_cfg, detector, device, image_i
     img_cv2 = cv2.imread(image_path)
     if img_cv2 is None:
         print(f"{prefix}WARNING: Could not read image, skipping: {img_name}")
-        return None
+        return None, None
 
     # Detect person
     boxes, scores = detect_person(detector, img_cv2)
     if len(boxes) == 0:
         print(f"{prefix}WARNING: {img_name} - no person detected, skipping.")
-        return None
+        return None, None
 
     # Pick largest person if multiple detected
     if len(boxes) > 1:
         areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
         idx = np.argmax(areas)
         boxes = boxes[idx:idx + 1]
+        det_score = float(scores[idx])
+    else:
+        det_score = float(scores[0])
 
     bbox_str = boxes[0].astype(int).tolist()
 
@@ -286,24 +308,41 @@ def process_single_image(image_path, model, model_cfg, detector, device, image_i
     betas, _global_orient = run_hmr2_inference(model, model_cfg, img_cv2, boxes, device)
     if betas is None:
         print(f"{prefix}WARNING: {img_name} - HMR 2.0 failed, skipping.")
-        return None
+        return None, None
 
     betas_np = betas.numpy().flatten()
-    print(f"{prefix}{img_name}: bbox={bbox_str}, betas=[{', '.join(f'{b:.3f}' for b in betas_np[:5])}]")
-    return betas
+    print(f"{prefix}{img_name}: bbox={bbox_str}, score={det_score:.3f}, betas=[{', '.join(f'{b:.3f}' for b in betas_np[:5])}]")
+    return betas, det_score
 
 
-def aggregate_betas(betas_list):
+def aggregate_betas(betas_list, scores=None):
     """Average betas from multiple views for more robust shape estimation.
+
+    If detection scores are provided, computes a confidence-weighted average.
+    Otherwise falls back to uniform mean.
 
     Args:
         betas_list: List of (1, 10) tensors from individual images.
+        scores: Optional list of float detection confidence scores.
 
     Returns:
         Averaged betas tensor (1, 10).
     """
     stacked = torch.stack(betas_list, dim=0)  # (N, 1, 10)
-    mean_betas = stacked.mean(dim=0)           # (1, 10)
+
+    if scores is not None and len(scores) == len(betas_list):
+        weights = torch.tensor(scores, dtype=torch.float32)  # (N,)
+        w_sum = weights.sum()
+        if w_sum > 0:
+            weights = weights / w_sum  # normalize
+        else:
+            weights = torch.ones_like(weights) / len(weights)  # uniform fallback
+        # (N,) -> (N, 1, 1) for broadcasting with (N, 1, 10)
+        weights = weights.view(-1, 1, 1)
+        mean_betas = (stacked * weights).sum(dim=0)  # (1, 10)
+    else:
+        mean_betas = stacked.mean(dim=0)  # (1, 10)
+
     return mean_betas
 
 
@@ -358,13 +397,15 @@ def main():
     # Step 2 & 3: Process each image (detect + HMR 2.0)
     print(f"\n[2/4] Kisi tespiti + HMR 2.0 tahmin ({n_images} fotograf)...")
     all_betas = []
+    all_scores = []
     for i, img_path in enumerate(image_paths, 1):
-        betas = process_single_image(
+        betas, score = process_single_image(
             img_path, model, model_cfg, detector, device,
             image_idx=i, total_images=n_images
         )
         if betas is not None:
             all_betas.append(betas)
+            all_scores.append(score)
 
     if len(all_betas) == 0:
         sys.exit("Hicbir fotograftan shape parametresi cikarilamadi!")
@@ -375,7 +416,7 @@ def main():
         if len(all_betas) < n_images:
             print(f"   UYARI: {n_images - len(all_betas)} fotograf islenmedi, "
                   f"kalan {len(all_betas)} fotograf kullaniliyor.")
-        final_betas = aggregate_betas(all_betas)
+        final_betas = aggregate_betas(all_betas, scores=all_scores)
         betas_np = final_betas.numpy().flatten()
         print(f"   Ortalama betas (ilk 5): [{', '.join(f'{b:.3f}' for b in betas_np[:5])}]")
     else:

@@ -84,12 +84,14 @@ class SMPLMeasurementDefinitions():
                     (SMPL_LANDMARK_INDICES["SHOULDER_TOP"], 
                      SMPL_LANDMARK_INDICES["INSEAM_POINT"]
                     ),
-                "arm left length": 
-                    (SMPL_LANDMARK_INDICES["LEFT_SHOULDER"], 
+                "arm left length":
+                    (SMPL_LANDMARK_INDICES["LEFT_SHOULDER"],
+                     SMPL_LANDMARK_INDICES["LEFT_ELBOW"],
                      SMPL_LANDMARK_INDICES["LEFT_WRIST"]
                     ),
                 "arm right length":
-                    (SMPL_LANDMARK_INDICES["RIGHT_SHOULDER"], 
+                    (SMPL_LANDMARK_INDICES["RIGHT_SHOULDER"],
+                     SMPL_LANDMARK_INDICES["Rt. Humeral Lateral Epicn"],
                      SMPL_LANDMARK_INDICES["RIGHT_WRIST"]
                     ),
                 "inside leg height": 
@@ -156,16 +158,16 @@ class SMPLMeasurementDefinitions():
                                         "JOINTS":["right_elbow","right_wrist"]},
         
         "thigh left circumference":{"LANDMARKS":["LEFT_THIGH"],
-                                    "JOINTS":["pelvis","spine3"]},
-        
+                                    "JOINTS":["left_hip","left_knee"]},
+
         "calf left circumference":{"LANDMARKS":["LEFT_CALF"],
-                                    "JOINTS":["pelvis","spine3"]},
+                                    "JOINTS":["left_knee","left_ankle"]},
 
         "ankle left circumference":{"LANDMARKS":["LEFT_ANKLE"],
-                                    "JOINTS":["pelvis","spine3"]},      
-                    
+                                    "JOINTS":["left_ankle","left_foot"]},
+
                     }
-    
+
     possible_measurements = list(LENGTHS.keys()) + list(CIRCUMFERENCES.keys())
 
     CIRCUMFERENCE_TO_BODYPARTS = {
@@ -262,16 +264,16 @@ class SMPLXMeasurementDefinitions():
                                         "JOINTS":["right_elbow","right_wrist"]},
         
         "thigh left circumference":{"LANDMARKS":["LEFT_THIGH"],
-                                    "JOINTS":["pelvis","spine3"]},
-        
+                                    "JOINTS":["left_hip","left_knee"]},
+
         "calf left circumference":{"LANDMARKS":["LEFT_CALF"],
-                                    "JOINTS":["pelvis","spine3"]},
+                                    "JOINTS":["left_knee","left_ankle"]},
 
         "ankle left circumference":{"LANDMARKS":["LEFT_ANKLE"],
-                                    "JOINTS":["pelvis","spine3"]},      
-                    
+                                    "JOINTS":["left_ankle","left_foot"]},
+
                     }
-    
+
     possible_measurements = list(LENGTHS.keys()) + list(CIRCUMFERENCES.keys())
 
     CIRCUMFERENCE_TO_BODYPARTS = {

@@ -15,7 +15,7 @@ from plotly.subplots import make_subplots
 
 
 from measurement_definitions import MeasurementType
-from utils import convex_hull_from_3D_points, filter_body_part_slices
+from utils import ordered_contour_from_segments, filter_body_part_slices
 from joint_definitions import SMPL_IND2JOINT, SMPLX_IND2JOINT
 from landmark_definitions import SMPL_LANDMARK_INDICES, SMPLX_LANDMARK_INDICES
 
@@ -194,13 +194,13 @@ class Visualizer():
 
         return plots
 
-    def create_measurement_length_plot(self, 
+    def create_measurement_length_plot(self,
                                        measurement_name: str,
                                        verts: np.ndarray,
                                        color: str
                                        ):
         '''
-        Create length measurement plot.
+        Create length measurement plot for N landmarks (draws connected segments).
         :param measurement_name: str, measurement name to plot
         :param verts: np.array (N,3) of vertices
         :param color: str of color to color the measurement
@@ -208,13 +208,13 @@ class Visualizer():
         Return
         plotly object to plot
         '''
-        
+
         measurement_landmarks_inds = self.length_definitions[measurement_name]
 
         segments = {"x":[],"y":[],"z":[]}
-        for i in range(2):
+        for i in range(len(measurement_landmarks_inds)):
             if isinstance(measurement_landmarks_inds[i],tuple):
-                lm_tnp = (verts[measurement_landmarks_inds[i][0]] + 
+                lm_tnp = (verts[measurement_landmarks_inds[i][0]] +
                           verts[measurement_landmarks_inds[i][1]]) / 2
             else:
                 lm_tnp = verts[measurement_landmarks_inds[i]]
@@ -279,16 +279,16 @@ class Visualizer():
                                                  self.circumf_2_bodypart,
                                                  self.face_segmentation)
         
-        slice_segments_hull = convex_hull_from_3D_points(slice_segments)
-        
-        
+        slice_segments_contour = ordered_contour_from_segments(slice_segments)
+
+
         draw_segments = {"x":[],"y":[],"z":[]}
         map_ax = {0:"x",1:"y",2:"z"}
 
-        for i in range(slice_segments_hull.shape[0]):
+        for i in range(slice_segments_contour.shape[0]):
             for j in range(3):
-                draw_segments[map_ax[j]].append(slice_segments_hull[i,0,j])
-                draw_segments[map_ax[j]].append(slice_segments_hull[i,1,j])
+                draw_segments[map_ax[j]].append(slice_segments_contour[i,0,j])
+                draw_segments[map_ax[j]].append(slice_segments_contour[i,1,j])
                 draw_segments[map_ax[j]].append(None)
 
         if measurement_name in self.measurements:
