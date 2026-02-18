@@ -1,0 +1,24 @@
+services:
+  body-measurement-api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8001:8000"
+    environment:
+      - DEVICE=cuda
+      - CORS_ORIGINS=*
+      - MAX_IMAGE_SIZE_MB=10
+      - REQUEST_TIMEOUT_SEC=30
+      - MOCK_PYRENDER=true
+    volumes:
+      # Mount local HMR2 checkpoint cache (avoids re-downloading ~2.7GB)
+      - ${USERPROFILE:-.}/.cache/4DHumans:/root/.cache/4DHumans:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped

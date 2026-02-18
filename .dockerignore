@@ -1,0 +1,36 @@
+# Large model files not needed by API (API uses SMPL only, not SMPLX)
+data/smplx/
+
+# External projects
+shapy-master/
+shapy_data/
+shapy_output/
+datasets/
+
+# Evaluation/analysis scripts (not needed at runtime)
+evaluate_*.py
+evaluate.py
+analyze_*.py
+check_*.py
+download_*.py
+compare_*.py
+extract_*.py
+keypoint_converter.py
+shapy_service.py
+setup_hmr2.bat
+
+# Dev artifacts
+__pycache__/
+*.pyc
+.venv/
+.git/
+.gitignore
+.github/
+.claude/
+
+# Test images / docs
+*.jpeg
+*.jpg
+*.png
+README.md
+LICENSE

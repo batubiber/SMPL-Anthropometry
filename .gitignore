@@ -1,5 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
 
-__pycache__/*
-data/*/*.pkl
-data/*/point_segmentation_meshcapade.json
+# Virtual environments
+.venv/
+venv/
+
+# Claude Code
+.claude/
+CLAUDE.md
+
+# SMPL/SMPLX model weights (large — download separately, see README)
+data/smpl/*.pkl
+data/smpl/point_segmentation_meshcapade.json
+data/smplx/
+
+# Large cloned repos (clone separately)
+4D-Humans/
+shapy-master/
+
+# SHAPY working data
+shapy_data/
+shapy_output/
+
+# Evaluation datasets
+datasets/
+
+# Test images and generated files
+*.jpeg
+*.jpg
+*.png
+*.glb
+response.json
+
+# Notebooks
 visualizeMeasurements (EXPERIMENTING).ipynb
+
+# OS
+.DS_Store
+Thumbs.db
